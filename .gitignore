@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+out*/
+
+# configuration et secrets du receiver : jamais dans git
+config.json
+*.key
+*.crt

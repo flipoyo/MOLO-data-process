@@ -1,0 +1,11 @@
+{
+  "host": "<adresse du broker de Toulouse>",
+  "port": 0,
+  "topic": "application/+/device/+/event/up",
+  "username": "",
+  "password": "",
+  "tls": true,
+  "ca_file": "",
+  "cert_file": "",
+  "key_file": ""
+}
