@@ -8,3 +8,4 @@ out*/
 config.json
 *.key
 *.crt
+.pixi/

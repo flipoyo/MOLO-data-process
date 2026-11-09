@@ -59,15 +59,20 @@ Règles du brut :
 
 ## Lancer les tests et les démonstrations
 
+L'environnement s'installe avec [pixi](https://pixi.sh), dans ce dépôt :
+
 ```bash
-python -m unittest discover -s tests -t . -v     # 60 tests, sans réseau
-python demo.py                                   # V1 et V2 convergent à partir d'une même vérité synthétique
-python demo_repo.py                              # le dépôt de données complet, avec receiver et import V1
+pixi install          # Python 3.12, pandas 3, numpy 2, protobuf, paho-mqtt et raw_to_processed en mode éditable
+pixi run test         # les tests, sans réseau
+pixi run demo         # V1 et V2 convergent à partir d'une même vérité synthétique
+pixi run demo-repo    # le dépôt de données complet, avec receiver et import V1
 ```
 
-Python 3.12, pandas 3, numpy 2 ; `uv sync` pour recréer l'environnement exact à partir de `uv.lock`.
-Facultatifs : `git` (hash d'arbre), `protobuf` (contrôle du codec), `paho-mqtt` (extra `mqtt`, pour `listen`),
-et ComplexGitSync (`CGS_SRC=<chemin>/ComplexGitSync/src`, avec `tomli_w`) pour vérifier que le JSON canonique est
+`pixi.lock` fixe l'environnement exact. Les commandes `python -m raw_to_processed ...` ci-dessus se lancent dans cet
+environnement avec `pixi run python -m raw_to_processed ...`. Dans l'arbre
+[MOLONARI-computo](https://github.com/flipoyo/MOLONARI-computo), `pixi install` à la racine de l'arbre installe ce
+paquet avec les autres, et `pixi run test-all` lance tous leurs tests.
+Facultatifs : `git` (hash d'arbre) et ComplexGitSync (`CGS_SRC=<chemin>/ComplexGitSync/src`, avec `tomli_w`) pour vérifier que le JSON canonique est
 identique au sien. Sans eux, les tests concernés sont ignorés.
 
 ## Contenu
@@ -141,3 +146,21 @@ Ne prouvent pas :
 - D'où vient `TempBed` côté V2 (`insertion_molonaviz.py` pose la question en commentaire) ?
 - `raw_data` et `processed_data` : deux dépôts ou un seul ? (la granularité de la racine de Merkle de ComplexGitSync
   est le dépôt ; la spec cible les place dans MOLONARI-DATA, avec les mêmes droits de lecture.)
+
+## Version
+
+La version suit [SemVer](https://semver.org). `[workspace] version` de `pixi.toml` est la référence ;
+`scripts/bump_version.py`, le même dans chaque dépôt de l'arbre MOLONARI-computo, la recopie dans chaque fichier qui
+la reprend (`pyproject.toml`, `raw_to_processed/__init__.py`) :
+
+```sh
+pixi run bump-version minor --dry-run   # affiche le plan, n'écrit rien
+pixi run bump-version patch             # ou minor, major ; --stage rc ajoute une étiquette de pré-version
+pixi run check-version                  # chaque copie porte la version de pixi.toml (vérifié par GitHub Actions)
+```
+
+## Assistance par LLM
+
+Une partie de ce dépôt (son environnement pixi et ce README) a été écrite avec l'aide de grands modèles de langage,
+principalement Claude (Anthropic) avec Claude Code, utilisés comme service payant sous la direction du responsable
+du projet, Nicolas Flipo. Ils sont mentionnés ici plutôt que crédités comme co-auteurs.

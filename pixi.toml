@@ -1,0 +1,27 @@
+# Environment of molonari-pipeline on its own. Within the MOLONARI-computo tree, the pixi.toml at the root of the
+# tree installs it together with the other packages.
+[workspace]
+name = "molonari-pipeline"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
+
+[dependencies]
+python = "3.12.*"
+numpy = ">=2"
+pandas = ">=3"
+# optional: protobuf checks the codec, paho-mqtt is needed by `listen`
+protobuf = "*"
+paho-mqtt = ">=2"
+setuptools = "*"
+
+[pypi-dependencies]
+molonari-pipeline = { path = ".", editable = true }
+
+[tasks]
+# SemVer of this repository: pixi.toml is the reference, see scripts/bump_version.py
+bump-version = "python scripts/bump_version.py"
+check-version = "python scripts/bump_version.py --check"
+test = "python -m unittest discover -s tests -t . -v"
+demo = "python demo.py"
+demo-repo = "python demo_repo.py"
