@@ -1154,8 +1154,8 @@ packages:
   timestamp: 1787725739779
 - pypi: ./
   name: molonari-pipeline
-  version: 0.1.0
-  sha256: 9fdc21f8b831a53de6a6558061e4478ff2b28895714b6da5c1d780570f1ee27a
+  version: 0.1.1
+  sha256: bd77ff2035ec23f851e4812fb07d96e7cf864c6804e30fad9b53e48f5e092060
   requires_dist:
   - numpy
   - pandas

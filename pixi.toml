@@ -2,7 +2,7 @@
 # tree installs it together with the other packages.
 [workspace]
 name = "molonari-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
