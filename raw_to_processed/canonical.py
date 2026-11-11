@@ -17,7 +17,8 @@ import pandas as pd
 from .states import READY_COLUMNS
 
 DECIMALS = {"Temp1": 3, "Temp2": 3, "Temp3": 3, "Temp4": 3, "TempBed": 3, "Voltage": 5, "Pressure": 5}
-DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+DATE_FORMAT = "%Y-%m-%dT%H:%M:%SZ"          # heure UTC
+NAIVE_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"     # fuseau inconnu : l'heure d'origine est conservée telle quelle
 
 _FILE_TAG = b"MOLO:FILE:v1\x00"
 _NODE_TAG = b"MOLO:NODE:v1\x00"
@@ -99,10 +100,13 @@ def _fmt(value: float, decimals: int) -> str:
     return s[1:] if s.startswith("-") and float(s) == 0 else s      # jamais de « -0.000 »
 
 
-def write_ready_csv(df: pd.DataFrame, path) -> None:
-    """Lignes triées par date, colonnes dans un ordre fixe, décimales fixes, dates ISO UTC, fins de ligne LF."""
+def write_ready_csv(df: pd.DataFrame, path, utc: bool = True) -> None:
+    """Lignes triées par date, colonnes dans un ordre fixe, décimales fixes, dates ISO, fins de ligne LF.
+
+    `utc=True` : dates en UTC, suffixe Z. `utc=False` : fuseau d'origine inconnu, dates conservées sans suffixe.
+    """
     df = df.sort_values("Date", kind="stable")
-    dates = df["Date"].dt.strftime(DATE_FORMAT).tolist()
+    dates = df["Date"].dt.strftime(DATE_FORMAT if utc else NAIVE_DATE_FORMAT).tolist()
     lines = [",".join(READY_COLUMNS)]
     for k, date in enumerate(dates):
         row = df.iloc[k]

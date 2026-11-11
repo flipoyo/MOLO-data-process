@@ -3,6 +3,7 @@
     <data_root>/
       raw_data/<point>/v2_lora/<jour>.jsonl     messages reçus, écrits par le receiver
       raw_data/<point>/v1_hobo/P_measures.csv   fichiers déposés à la main, copiés sans modification
+      raw_data/<point>/legacy_csv/pressure.csv, temperature.csv   exports des loggers 2015-2023, copiés tels quels
       raw_data/<point>/ingest.json              empreinte de chaque fichier brut, pour détecter une altération
       raw_data/_unrouted/, raw_data/_invalid/   messages d'appareils inconnus ou illisibles
       processed_data/<point>/data/measures.csv  résultat, lisible par COMPUTO
@@ -15,15 +16,17 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 from .canonical import file_digest, list_files
 from .lab import LAB_PATH, VirtualLab
 from .pipeline import process
-from .readers import read_v1
+from .readers import LEGACY_PRESSURE, LEGACY_TEMPERATURE, read_legacy_csv, read_v1
+from .thermal import ThermalCalibration, fit_calibration, load_calibration_table
 
 RAW, PROCESSED = "raw_data", "processed_data"
-SOURCES = {"v1": "v1_hobo", "v2": "v2_lora"}
+SOURCES = {"v1": "v1_hobo", "v2": "v2_lora", "legacy_csv": "legacy_csv"}
 INGEST = "ingest.json"
 V1_FILES = ("P_measures.csv", "T_measures.csv")
 
@@ -100,7 +103,55 @@ def import_v1(data_root, point: str, src_dir, lab: VirtualLab) -> list[str]:
     return copied
 
 
+# --------------------------------------------------------------------------- import « legacy »
+def register_legacy_csv(data_root, point: str, lab: VirtualLab) -> list[str]:
+    """Contrôle les fichiers déjà placés dans raw_data/<point>/legacy_csv/ et enregistre leur empreinte.
+
+    Retourne la liste des fichiers bruts du point, avec leur chemin relatif (par exemple `legacy_csv/pressure.csv`).
+    """
+    if not lab.has_point(point):
+        raise ValueError(f"point inconnu du laboratoire : {point!r}")
+    point_dir = raw_point_dir(data_root, point)
+    legacy = point_dir / SOURCES["legacy_csv"]
+    missing = [n for n in (LEGACY_PRESSURE, LEGACY_TEMPERATURE) if not (legacy / n).is_file()]
+    if missing:
+        raise FileNotFoundError(f"fichiers manquants dans {legacy} : {', '.join(missing)}")
+    raw = read_legacy_csv(legacy, lab.params(point, "legacy_csv").get("timestamps", "strict"))
+    if raw.pressure.empty or raw.temperature.empty:
+        raise ValueError(f"{point} : fichiers legacy sans ligne exploitable")
+    refresh_ingest(point_dir)
+    return sorted(json.loads((point_dir / INGEST).read_text(encoding="utf-8"))["files"])
+
+
+def import_legacy_csv(data_root, point: str, pressure_src, temperature_src, lab: VirtualLab) -> list[str]:
+    """Copie deux exports de logger dans raw_data/<point>/legacy_csv/ (octets inchangés), puis les enregistre.
+
+    Un fichier déjà présent et différent n'est jamais écrasé.
+    """
+    dest_dir = raw_point_dir(data_root, point) / SOURCES["legacy_csv"]
+    for src, name in ((pressure_src, LEGACY_PRESSURE), (temperature_src, LEGACY_TEMPERATURE)):
+        dest = dest_dir / name
+        if dest.exists() and file_digest(dest) != file_digest(src):
+            raise FileExistsError(f"{dest} existe déjà avec un contenu différent")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for src, name in ((pressure_src, LEGACY_PRESSURE), (temperature_src, LEGACY_TEMPERATURE)):
+        if not (dest_dir / name).exists():
+            shutil.copyfile(src, dest_dir / name)
+    return register_legacy_csv(data_root, point, lab)
+
+
 # --------------------------------------------------------------------------- raw -> processed
+def load_thermal(data_root, lab: VirtualLab, point: str) -> ThermalCalibration | None:
+    """Calibre le filtre thermique du point à partir de sa table de calibration (dans le dépôt de données)."""
+    spec = lab.thermal(point)
+    if spec is None:
+        return None
+    table_path = Path(data_root) / spec["table"]
+    table = load_calibration_table(table_path, spec.get("columns"))
+    thermal = fit_calibration(table, spec.get("dt_seconds"), spec.get("external_series", "TempBed"))
+    return replace(thermal, source={"table": spec["table"], "sha256": file_digest(table_path)})
+
+
 def _present_sources(raw_point: Path) -> list[str]:
     return [kind for kind, sub in SOURCES.items()
             if (raw_point / sub).is_dir() and any(p.is_file() for p in (raw_point / sub).iterdir())]
@@ -131,15 +182,19 @@ def run_point(data_root, point: str, lab: VirtualLab | None = None, source: str 
     else:
         raise ValueError(f"{point} : source {source!r} absente (présentes : {present})")
 
+    thermal = load_thermal(data_root, lab, point)
     extra = {"lab": {"point": point, "calibration": lab.calibration_name(point),
                      "devices": lab.devices(point), "digest": lab.digest()}}
     return process(kind, raw_point / SOURCES[kind], lab.calibration(point), processed_point_dir(data_root, point),
-                   {**lab.params(point, kind), **(params or {})}, extra)
+                   {**lab.params(point, kind), **(params or {})}, extra, thermal)
 
 
 def run_all(data_root, lab: VirtualLab | None = None, points: list[str] | None = None,
-            source: str = "auto", verify: bool = True) -> dict:
-    """Traite chaque point du laboratoire qui a des données brutes. {point: manifeste ou None si rien à traiter}."""
+            source: str = "auto", verify: bool = True, raise_errors: bool = True) -> dict:
+    """Traite chaque point du laboratoire qui a des données brutes. {point: manifeste ou None si rien à traiter}.
+
+    `raise_errors=False` : un point en échec ne bloque pas les autres, son entrée est {"error": "message"}.
+    """
     data_root = Path(data_root)
     lab = lab or load_lab(data_root)
     results = {}
@@ -147,5 +202,10 @@ def run_all(data_root, lab: VirtualLab | None = None, points: list[str] | None =
         if not raw_point_dir(data_root, point).is_dir():
             results[point] = None
             continue
-        results[point] = run_point(data_root, point, lab, source, verify)[0]
+        try:
+            results[point] = run_point(data_root, point, lab, source, verify)[0]
+        except Exception as exc:
+            if raise_errors:
+                raise
+            results[point] = {"error": f"{type(exc).__name__}: {exc}"}
     return results

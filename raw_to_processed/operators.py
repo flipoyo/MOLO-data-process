@@ -85,8 +85,10 @@ KNOWN_DATE_FORMATS = (
     "%m/%d/%y %I:%M:%S %p",   # exports HOBO 2016 (Point034)
     "%m/%d/%y %H:%M:%S",
     "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",         # fichiers repassés par un tableur (Point034)
     "%Y/%m/%d %H:%M",         # exports HOBO 2024
     "%d/%m/%Y %H:%M",
+    "%d/%m/%Y %H:%M:%S",
     "%Y-%m-%dT%H:%M:%SZ",
 )
 
@@ -107,9 +109,62 @@ def detect_date_format(strings, candidates=KNOWN_DATE_FORMATS) -> str:
     raise ValueError("Aucun format de date connu ne convient")
 
 
-def parse_dates(strings, fmt: str, utc_offset_hours: float = 0.0) -> pd.Series:
-    """Dates -> datetimes naïfs en UTC, avec format et décalage horaire explicites."""
-    parsed = pd.to_datetime(pd.Series(list(strings)), format=fmt)
+def detect_date_formats(strings, candidates=KNOWN_DATE_FORMATS) -> list[str]:
+    """Format(s) de date d'une colonne : un seul si possible, deux si le fichier change de format en cours de route.
+
+    Un fichier retouché dans un tableur peut commencer en « 06/27/16 12:00:00 PM » et finir en « 07/12/2016 16:45 ».
+    Si aucun format ne lit toute la colonne, on cherche un premier format qui lit le début, puis un second qui lit le
+    reste, avec des dates croissantes. Si plusieurs couples conviennent (jour/mois ambigu), on garde celui qui donne
+    la série la plus courte dans le temps : la lecture qui ne fait pas de saut de plusieurs mois.
+    """
+    s = pd.Series(list(strings))
+    try:
+        return [detect_date_format(s, candidates)]
+    except ValueError:
+        pass
+    best = None
+    for first in candidates:
+        head = pd.to_datetime(s, format=first, errors="coerce")
+        k = int(head.notna().to_numpy().argmin()) if not head.notna().all() else len(s)
+        if k == 0:
+            continue
+        for second in candidates:
+            if second == first:
+                continue
+            tail = pd.to_datetime(s.iloc[k:], format=second, errors="coerce")
+            if tail.isna().any():
+                continue
+            whole = pd.concat([head.iloc[:k], tail])
+            if not whole.is_monotonic_increasing:
+                continue
+            span = whole.iloc[-1] - whole.iloc[0]
+            if best is None or span < best[0]:
+                best = (span, [first, second])
+    if best is None:
+        raise ValueError("Aucun format de date connu (ni couple de formats) ne convient")
+    return best[1]
+
+
+def parse_dates(strings, fmt, utc_offset_hours: float | None = 0.0) -> pd.Series:
+    """Dates -> datetimes naïfs, avec format et décalage horaire explicites.
+
+    `fmt` : un format, ou une liste de formats essayés dans l'ordre pour chaque date (fichier qui change de format).
+    `utc_offset_hours` : décalage de l'heure locale du logger par rapport à UTC (heures) ; la date est ramenée en UTC.
+    `None` : fuseau inconnu, l'heure d'origine est conservée telle quelle.
+    """
+    s = pd.Series(list(strings))
+    formats = [fmt] if isinstance(fmt, str) else list(fmt)
+    parsed = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    for f in formats:
+        todo = parsed.isna()
+        if not todo.any():
+            break
+        parsed[todo] = pd.to_datetime(s[todo], format=f, errors="coerce")
+    if parsed.isna().any():
+        bad = s[parsed.isna()].iloc[0]
+        raise ValueError(f"date illisible avec {formats} : {bad!r}")
+    if utc_offset_hours is None:
+        return parsed
     return parsed - pd.to_timedelta(utc_offset_hours, unit="h")
 
 

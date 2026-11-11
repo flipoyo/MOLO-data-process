@@ -5,6 +5,9 @@
   run         DATA_ROOT [POINT ...]        raw_data -> processed_data
   verify      DATA_ROOT [POINT ...]        contrôle que le brut n'a pas été modifié
   listen      DATA_ROOT CONFIG.json        écoute le broker MQTT (non essayé contre un vrai serveur)
+  import-dataanalysis SRC DATA_ROOT        importe MOLONARI1D/dataAnalysis (brut, laboratoire, références)
+  validate    DATA_ROOT [POINT ...]        compare processed_data aux résultats historiques de Molonaviz
+  records     RECORDS.csv [sortie.xlsx]    RECORDS.csv -> Excel (nécessite openpyxl)
 
 Option commune : --lab chemin/vers/lab.json (défaut : DATA_ROOT/lab/lab.json).
 """
@@ -14,8 +17,10 @@ import argparse
 import json
 import sys
 
+from .dataanalysis import import_dataanalysis
 from .datarepo import import_v1, load_lab, raw_point_dir, run_all, verify_raw
 from .receiver import ingest_file, listen
+from .validate import compare_all
 
 
 def main(argv=None) -> int:
@@ -40,7 +45,26 @@ def main(argv=None) -> int:
     run.add_argument("--no-verify", action="store_true")
     add("verify", nargs=True)
     add("listen", "config")
+    add("validate", nargs=True)
+    imp = sub.add_parser("import-dataanalysis")
+    imp.add_argument("src")
+    imp.add_argument("data_root")
+    imp.add_argument("--sensor", action="append", default=[], metavar="POINT=CAPTEUR",
+                     help="impose le capteur de pression d'un point (par exemple Point035=P505)")
+    rec = sub.add_parser("records")
+    rec.add_argument("csv")
+    rec.add_argument("xlsx", nargs="?")
     args = parser.parse_args(argv)
+
+    if args.command == "import-dataanalysis":
+        sensors = dict(item.split("=", 1) for item in args.sensor)
+        for point, info in import_dataanalysis(args.src, args.data_root, sensors).items():
+            print(point, info)
+        return 0
+    if args.command == "records":
+        from .records import convertir
+        convertir(args.csv, args.xlsx)
+        return 0
     lab = load_lab(args.data_root, args.lab)
 
     if args.command == "ingest-file":
@@ -60,6 +84,13 @@ def main(argv=None) -> int:
                 print(f"{point}: " + ("intact" if not problems else " ; ".join(problems)))
                 bad = bad or bool(problems)
         return 1 if bad else 0
+    elif args.command == "validate":
+        for point, result in compare_all(args.data_root, args.points or lab.points()).items():
+            if "variables" not in result:
+                print(f"{point}: {result['status']}")
+                continue
+            detail = "  ".join(f"{n}:{d['niveau']}" for n, d in result["variables"].items() if "niveau" in d)
+            print(f"{point}: {result['status']:9s} couverture {result['couverture']:.2f}  {detail}")
     elif args.command == "listen":
         listen(args.config, args.data_root, lab)
     return 0

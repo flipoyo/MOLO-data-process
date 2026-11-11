@@ -11,8 +11,9 @@ import pandas as pd
 from . import __version__
 from .canonical import DECIMALS, digest, dir_digest, git_tree_hash, list_files, write_ready_csv
 from .operators import adc_to_volt, clean, parse_dates, volt_to_celsius, volt_to_pressure
-from .readers import read_v1, read_v2
+from .readers import read_legacy_csv, read_v1, read_v2
 from .states import CONVERTED_COLUMNS, Calibration, Converted, RawV1, RawV2, Ready
+from .thermal import ThermalCalibration, apply_to_ready_frame
 
 DEFAULT_PARAMS = {"date_fmt": "%m/%d/%y %I:%M:%S %p", "utc_offset_hours": 0.0,
                   "dedupe": True, "rules": {}, "window": None}
@@ -28,7 +29,7 @@ def _quantize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- étapes
-def v1_to_converted(raw: RawV1, date_fmt: str, utc_offset_hours: float = 0.0, dedupe: bool = True) -> Converted:
+def v1_to_converted(raw: RawV1, date_fmt: str, utc_offset_hours: float | None = 0.0, dedupe: bool = True) -> Converted:
     p, t = raw.pressure.copy(), raw.temperature.copy()
     p["Date"] = parse_dates(p["Date"], date_fmt, utc_offset_hours)
     t["Date"] = parse_dates(t["Date"], date_fmt, utc_offset_hours)
@@ -58,11 +59,22 @@ def v2_to_converted(raw: RawV2, calib: Calibration, dedupe: bool = True) -> Conv
     return Converted(_quantize(df))
 
 
-def converted_to_ready(conv: Converted, calib: Calibration, rules=None, window=None):
+def converted_to_ready(conv: Converted, calib: Calibration, rules=None, window=None,
+                       thermal: ThermalCalibration | None = None):
+    """Pression différentielle, correction thermique facultative, puis nettoyage.
+
+    La correction thermique (filtre de calib.py) se fait AVANT le nettoyage : elle exige des mesures régulièrement
+    espacées et sans valeur manquante, ce que le nettoyage peut défaire.
+    """
     df = conv.df.copy()
     df["Pressure"] = volt_to_pressure(df["Voltage"], df["TempBed"], calib.intercept, calib.dudh, calib.dudt)
+    thermal_report = None
+    if thermal is not None:
+        df, thermal_report = apply_to_ready_frame(df, thermal)
     df = df.drop(columns="Voltage")
     cleaned, report = clean(df, rules, window)
+    if thermal_report is not None:
+        report["thermal"] = thermal_report
     return Ready(cleaned), report
 
 
@@ -72,8 +84,9 @@ def package_digest() -> str:
     return dir_digest(Path(__file__).parent, suffixes={".py"})
 
 
-def process(kind: str, raw_dir, calib: Calibration, out_dir, params: dict | None = None, extra: dict | None = None):
-    """Applique l'étape `kind` ('v1' ou 'v2') et écrit out_dir/data/measures.csv + out_dir/manifest.json.
+def process(kind: str, raw_dir, calib: Calibration, out_dir, params: dict | None = None, extra: dict | None = None,
+            thermal: ThermalCalibration | None = None):
+    """Applique l'étape `kind` ('v1', 'v2' ou 'legacy_csv') et écrit out_dir/data/measures.csv + out_dir/manifest.json.
 
     Retourne (manifeste, empreinte du manifeste). `outputs.digest` est la preuve de reproductibilité :
     il ne dépend ni de la date, ni de la machine, ni de l'emplacement des dossiers.
@@ -83,17 +96,22 @@ def process(kind: str, raw_dir, calib: Calibration, out_dir, params: dict | None
     raw_dir, out_dir = Path(raw_dir), Path(out_dir)
     window = tuple(p["window"]) if p["window"] else None
 
+    naive_dates = False
     if kind == "v1":
         converted = v1_to_converted(read_v1(raw_dir), p["date_fmt"], p["utc_offset_hours"], p["dedupe"])
+    elif kind == "legacy_csv":
+        raw = read_legacy_csv(raw_dir, p.get("timestamps", "strict"))
+        converted = v1_to_converted(raw, p["date_fmt"], p["utc_offset_hours"], p["dedupe"])
+        naive_dates = p["utc_offset_hours"] is None       # fuseau inconnu : on garde l'heure d'origine
     elif kind == "v2":
         converted = v2_to_converted(read_v2(raw_dir), calib, p["dedupe"])
     else:
         raise ValueError(f"étape inconnue : {kind!r}")
-    ready, report = converted_to_ready(converted, calib, p["rules"], window)
+    ready, report = converted_to_ready(converted, calib, p["rules"], window, thermal)
 
     data_dir = out_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    write_ready_csv(ready.df, data_dir / "measures.csv")
+    write_ready_csv(ready.df, data_dir / "measures.csv", utc=not naive_dates)
 
     manifest = {
         "schema": 1, "step": f"{kind}_to_ready", "twin_version": __version__,
@@ -105,6 +123,8 @@ def process(kind: str, raw_dir, calib: Calibration, out_dir, params: dict | None
         "report": report,
         "outputs": {"files": list_files(data_dir), "digest": dir_digest(data_dir), "git_tree": git_tree_hash(data_dir)},
     }
+    if thermal is not None:
+        manifest["thermal"] = thermal.to_dict()
     manifest.update(extra or {})
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -10,8 +10,15 @@ Format du fichier `lab/lab.json` :
      "sampling_points": {
         "Point034": {"calibration": "P520_T001",
                      "devices": ["VIRT-0001"],                      # identifiants lus dans les messages LoRa
-                     "params": {"rules": {"Temp1": "iqr"}},         # facultatif, commun à V1 et V2
-                     "v1": {"date_fmt": "%m/%d/%y %I:%M:%S %p", "utc_offset_hours": 0.0}}}}   # facultatif
+                     "params": {"rules": {"Temp1": "iqr"}},         # facultatif, commun à toutes les sources
+                     "v1": {"date_fmt": "%m/%d/%y %I:%M:%S %p", "utc_offset_hours": 0.0},   # facultatif, par source
+                     "legacy_csv": {"date_fmt": "%d/%m/%Y %H:%M", "utc_offset_hours": 1.0,  # exports 2015-2023
+                                    "timestamps": "strict"},        # ou "intersection"
+                     "thermal_calibration": {                       # facultatif : correction thermique (filtre)
+                         "table": "calibration/p508/RECORDS.csv",   # chemin relatif à la racine du dépôt de données
+                         "columns": {"external": "Value_Temperature_2", "internal": "Value_Temperature_3",
+                                     "pressure": "Value_Pressure"},  # rôle de chaque colonne : jamais deviné
+                         "external_series": "TempBed"}}}}
 
 La spec cible parle d'un `lab.yaml` dans MOLONARI-TWIN ; le prototype utilise du JSON pour ne pas ajouter de
 dépendance. Le chemin du fichier se passe en paramètre (`--lab`) : il n'a pas à vivre dans le dépôt de données.
@@ -78,6 +85,13 @@ class VirtualLab:
 
     def calibration(self, point: str) -> Calibration:
         return Calibration(**self.data["calibrations"][self.calibration_name(point)])
+
+    def thermal(self, point: str) -> dict | None:
+        """Description de la calibration thermique du point (clé `thermal_calibration`), ou None."""
+        spec = self.data["sampling_points"][point].get("thermal_calibration")
+        if spec is not None and "table" not in spec:
+            raise ValueError(f"lab : thermal_calibration de {point!r} sans clé 'table'")
+        return spec
 
     def params(self, point: str, kind: str) -> dict:
         """Paramètres de lecture : ceux du point, puis ceux propres à la source ('v1' ou 'v2')."""

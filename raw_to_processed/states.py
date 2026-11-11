@@ -46,8 +46,12 @@ class Calibration:
 
         beta et v_ref viennent de la thermistance (README_calibration.md : beta = 3834 K, V = 3,3 V).
         """
-        with open(path, newline="", encoding="utf-8-sig") as fh:
-            rows = {r[0].strip(): r[1].strip() for r in csv.reader(fh) if len(r) >= 2}
+        rows = {}
+        for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
+            delimiter = ";" if ";" in line else ","            # P506.csv et P507.csv sont séparés par des points-virgules
+            parts = next(csv.reader([line], delimiter=delimiter), [])
+            if len(parts) >= 2:
+                rows[parts[0].strip()] = parts[1].strip()
         return cls(beta=beta, v_ref=v_ref, intercept=float(rows["Intercept"]),
                    dudh=float(rows["dU/dH"]), dudt=float(rows["dU/dT"]))
 

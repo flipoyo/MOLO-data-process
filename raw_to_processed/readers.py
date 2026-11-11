@@ -10,6 +10,7 @@ import base64
 import csv
 import json
 import math
+import re
 import struct
 from pathlib import Path
 
@@ -44,6 +45,64 @@ def read_v1(raw_dir) -> RawV1:
     raw_dir = Path(raw_dir)
     pressure = _read_hobo(raw_dir / "P_measures.csv", ["Date", "Voltage", "Temp_Stream"])
     temperature = _read_hobo(raw_dir / "T_measures.csv", ["Date", "Temp1", "Temp2", "Temp3", "Temp4"])
+    return RawV1(pressure=pressure, temperature=temperature)
+
+
+# --------------------------------------------------------------------------- legacy : exports 2015-2023
+LEGACY_PRESSURE, LEGACY_TEMPERATURE = "pressure.csv", "temperature.csv"
+
+
+def _to_float(text: str):
+    try:
+        return float(text.strip())
+    except ValueError:
+        return None
+
+
+def _read_legacy_file(path, n_values: int, names: list[str]) -> pd.DataFrame:
+    """Lit un export de logger, quelle que soit sa variante.
+
+    Variantes rencontrées dans MOLONARI1D/dataAnalysis : une ou deux lignes de titre avant l'en-tête, séparateur
+    virgule ou tabulation, colonne d'index `#` présente ou non, colonnes vides à la fin, ligne « Fin de fichier ».
+    L'en-tête est la première ligne qui contient « date » ; la date est la colonne dont l'en-tête la contient ; les
+    valeurs sont les `n_values` colonnes suivantes. Les lignes incomplètes sont ignorées. Les valeurs ne sont jamais
+    converties : températures en °C et tensions en V, telles qu'exportées.
+    """
+    lines = Path(path).read_text(encoding="utf-8-sig").splitlines()
+    header_at = next((i for i, ln in enumerate(lines[:6]) if "date" in ln.lower()), None)
+    if header_at is None:
+        raise ValueError(f"{path} : aucune ligne d'en-tête contenant « date »")
+    unquoted = re.sub(r'"[^"]*"', "", lines[header_at])           # les virgules des intitulés entre guillemets ne comptent pas
+    delimiter = "\t" if unquoted.count("\t") > unquoted.count(",") else ","
+    header = next(csv.reader([lines[header_at]], delimiter=delimiter))
+    date_col = next(k for k, h in enumerate(header) if "date" in h.lower())
+    rows = []
+    for row in csv.reader(lines[header_at + 1:], delimiter=delimiter):
+        if len(row) <= date_col + n_values or not row[date_col].strip():
+            continue
+        values = [_to_float(v) for v in row[date_col + 1: date_col + 1 + n_values]]
+        if any(v is None for v in values):
+            continue
+        rows.append([row[date_col].strip(), *values])
+    return pd.DataFrame(rows, columns=names)
+
+
+def read_legacy_csv(raw_dir, timestamps: str = "strict") -> RawV1:
+    """`pressure.csv` (tension, température de la rivière) et `temperature.csv` (4 profondeurs) d'un point.
+
+    `timestamps="strict"` : les deux fichiers doivent porter exactement les mêmes horodatages (sinon ValueError).
+    `timestamps="intersection"` : on garde les instants communs (à déclarer dans le laboratoire).
+    """
+    raw_dir = Path(raw_dir)
+    pressure = _read_legacy_file(raw_dir / LEGACY_PRESSURE, 2, ["Date", "Voltage", "Temp_Stream"])
+    temperature = _read_legacy_file(raw_dir / LEGACY_TEMPERATURE, 4, ["Date", "Temp1", "Temp2", "Temp3", "Temp4"])
+    if timestamps == "strict":
+        if list(pressure["Date"]) != list(temperature["Date"]):
+            raise ValueError(f"horodatages différents entre {LEGACY_PRESSURE} ({len(pressure)} lignes) et "
+                             f"{LEGACY_TEMPERATURE} ({len(temperature)} lignes) ; déclarer timestamps='intersection' "
+                             "dans le laboratoire si c'est voulu")
+    elif timestamps != "intersection":
+        raise ValueError(f"timestamps : 'strict' ou 'intersection', pas {timestamps!r}")
     return RawV1(pressure=pressure, temperature=temperature)
 
 
