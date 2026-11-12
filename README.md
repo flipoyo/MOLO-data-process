@@ -70,7 +70,7 @@ Règles du brut :
 L'environnement s'installe avec [pixi](https://pixi.sh), dans ce dépôt :
 
 ```bash
-pixi install          # Python 3.12, pandas 3, numpy 2, protobuf, paho-mqtt et raw_to_processed en mode éditable
+pixi install          # Python 3.12, pandas 3, numpy 2, openpyxl (lecture des calibrations Excel), protobuf, paho-mqtt et raw_to_processed en mode éditable
 pixi run test         # les tests, sans réseau
 pixi run demo         # V1 et V2 convergent à partir d'une même vérité synthétique
 pixi run demo-repo    # le dépôt de données complet, avec receiver et import V1
