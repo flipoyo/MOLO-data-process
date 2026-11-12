@@ -2,7 +2,7 @@
 name = "molonari-pipeline"
 version = "0.2.0"
 requires-python = ">=3.10"
-dependencies = ["numpy", "pandas"]
+dependencies = ["numpy", "pandas", "openpyxl>=3.1"]
 
 [project.optional-dependencies]
 dev = ["protobuf"]
