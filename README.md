@@ -230,7 +230,7 @@ double comptage avec `dU/dT · TempBed`.
 
 ## Ce que les tests prouvent, et ce qu'ils ne prouvent pas
 
-Prouvent (60 tests, sans réseau) :
+Les tests sans réseau couvrent notamment :
 - les messages sont rangés par appareil et par jour de message, sans modification, sans doublon, et dans un ordre
   qui ne dépend pas de l'ordre d'arrivée ;
 - un appareil inconnu ou un message illisible est conservé à part, jamais perdu ni traité ;
