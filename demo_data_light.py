@@ -18,6 +18,7 @@ from raw_to_processed.dataanalysis import import_dataanalysis
 from raw_to_processed.datarepo import load_lab, run_all, run_point
 from raw_to_processed.fixtures import build_dataanalysis_mini, build_thermal_point
 from raw_to_processed.lab import VirtualLab
+from raw_to_processed.thermal_config import configure_thermal
 from raw_to_processed.validate import compare_all
 
 
