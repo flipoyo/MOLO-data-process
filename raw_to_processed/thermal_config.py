@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -119,8 +121,18 @@ def configure_thermal(data_root, lab_path=None, input_fn=input, print_fn=print) 
     if confirm != "oui":
         raise ValueError("Configuration annulée : lab.json n'a pas été modifié.")
 
+    # Sauvegarde horodatée du JSON existant avant toute écriture.
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = config_path.with_name(f"{config_path.name}.bak-{stamp}")
+    suffix = 1
+    while backup_path.exists():
+        backup_path = config_path.with_name(f"{config_path.name}.bak-{stamp}-{suffix:02d}")
+        suffix += 1
+    shutil.copy2(config_path, backup_path)
+
     temporary_path = config_path.with_name(config_path.name + ".tmp")
     temporary_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     temporary_path.replace(config_path)
+    print_fn(f"Sauvegarde de l'ancien JSON : {backup_path}")
     print_fn(f"Configuration enregistrée dans : {config_path}")
     return {"generation": generation, "points": points, "table": relative_table, "dt_seconds": fitted.dt_seconds}
