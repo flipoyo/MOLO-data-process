@@ -119,6 +119,8 @@ def configure_thermal(data_root, lab_path=None, input_fn=input, print_fn=print) 
     if confirm != "oui":
         raise ValueError("Configuration annulée : lab.json n'a pas été modifié.")
 
-    config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary_path = config_path.with_name(config_path.name + ".tmp")
+    temporary_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary_path.replace(config_path)
     print_fn(f"Configuration enregistrée dans : {config_path}")
     return {"generation": generation, "points": points, "table": relative_table, "dt_seconds": fitted.dt_seconds}
