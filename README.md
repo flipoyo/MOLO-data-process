@@ -179,6 +179,45 @@ Différences avec `calib.py`, à valider avec ses auteurs :
 - la lecture d'un fichier Excel en dur à la fin de `calib.py` a été retirée.
 Le manifeste enregistre le modèle ajusté, le pas de temps, le fichier de calibration et son SHA-256.
 
+#### Sélection par génération matérielle
+
+Le registre `thermal_calibrations` de `lab/lab.json` associe chaque génération de matériel à son expérience
+de calibration. Un sampling point qui porte `hardware_generation` récupère automatiquement l'entrée de même nom.
+Un point peut aussi utiliser `thermal_calibration` pour référencer explicitement une entrée du registre. Les anciens
+objets `thermal_calibration` intégrés directement dans un point restent acceptés.
+
+Exemple :
+
+```json
+{
+  "thermal_calibrations": {
+    "P508_generation_1": {
+      "table": "calibration/thermal/P508_generation_1/RECORDS.csv",
+      "columns": {
+        "external": "Value_Temperature_2",
+        "internal": "Value_Temperature_3",
+        "pressure": "Value_Pressure"
+      },
+      "external_series": "TempBed"
+    }
+  },
+  "sampling_points": {
+    "Point034": {
+      "calibration": "P508_T001",
+      "hardware_generation": "P508_generation_1"
+    }
+  }
+}
+```
+
+Les fichiers expérimentaux restent dans `DATA_ROOT/calibration/thermal/<generation>/`, sans être copiés dans
+`raw_data`. Leur SHA-256 est enregistré dans `manifest.json`. Le pipeline refuse une référence explicite
+inconnue ou un fichier absent. Aucune calibration thermique n'est appliquée aux points qui n'en déclarent pas.
+
+Le registre rend la sélection et la traçabilité possibles ; il ne valide pas scientifiquement une calibration.
+Avant activation sur un point réel, vérifier le rôle des colonnes, les unités, le pas de temps et le risque de
+double comptage avec `dU/dT · TempBed`.
+
 ## Écarts voulus par rapport à Molonaviz
 
 1. `adc_to_volt(0)` vaut 0 V (Molonaviz : NaN, à cause de `if not value`).
