@@ -8,6 +8,7 @@
   import-dataanalysis SRC DATA_ROOT        importe MOLONARI1D/dataAnalysis (brut, laboratoire, références)
   validate    DATA_ROOT [POINT ...]        compare processed_data aux résultats historiques de Molonaviz
   records     RECORDS.csv [sortie.xlsx]    RECORDS.csv -> Excel (nécessite openpyxl)
+  thermal-configure DATA_ROOT             assistant interactif de déclaration thermique
 
 Option commune : --lab chemin/vers/lab.json (défaut : DATA_ROOT/lab/lab.json).
 """
@@ -21,6 +22,7 @@ from .dataanalysis import import_dataanalysis
 from .datarepo import import_v1, load_lab, raw_point_dir, run_all, verify_raw
 from .receiver import ingest_file, listen
 from .validate import compare_all
+from .thermal_config import configure_thermal
 
 
 def main(argv=None) -> int:
@@ -51,6 +53,9 @@ def main(argv=None) -> int:
     imp.add_argument("data_root")
     imp.add_argument("--sensor", action="append", default=[], metavar="POINT=CAPTEUR",
                      help="impose le capteur de pression d'un point (par exemple Point035=P505)")
+    thermal_cfg = sub.add_parser("thermal-configure")
+    thermal_cfg.add_argument("data_root")
+    thermal_cfg.add_argument("--lab", default=None)
     rec = sub.add_parser("records")
     rec.add_argument("csv")
     rec.add_argument("xlsx", nargs="?")
@@ -64,6 +69,9 @@ def main(argv=None) -> int:
     if args.command == "records":
         from .records import convertir
         convertir(args.csv, args.xlsx)
+        return 0
+    if args.command == "thermal-configure":
+        configure_thermal(args.data_root, args.lab)
         return 0
     lab = load_lab(args.data_root, args.lab)
 
