@@ -46,6 +46,9 @@ class ThermalConfigurationWizard(unittest.TestCase):
         self.assertEqual(result["generation"], "P508_gen1")
         self.assertEqual(data["thermal_calibrations"]["P508_gen1"]["columns"]["external"], "Value_Temperature_2")
         self.assertEqual(data["sampling_points"]["Point034"]["hardware_generation"], "P508_gen1")
+        backups = list((self.root / "lab").glob("lab.json.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(json.loads(backups[0].read_text(encoding="utf-8"))["thermal_calibrations"], {})
 
     def test_wizard_does_not_save_when_user_cancels(self):
         answers = iter([
