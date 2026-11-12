@@ -73,7 +73,27 @@ def main():
         lab = info["lab"]
         without = json.loads(json.dumps(lab.data))
         del without["sampling_points"]["PointThermique"]["thermal_calibration"]
-        run_point(thermal_root, "PointThermique", VirtualLab(without))
+        lab = VirtualLab(without)
+        lab.save(thermal_root / "lab" / "lab.json")
+
+        title("4a. Déclaration automatique : le wizard construit lab.json à partir du fichier RECORDS.csv")
+        answers = iter([
+            "P520_demo_generation",
+            "calibration/PointThermique/RECORDS.csv",
+            "records",
+            "Value_Temperature_2",
+            "Value_Temperature_3",
+            "Value_Pressure",
+            "TempBed",
+            "",
+            "PointThermique",
+            "oui",
+        ])
+        configure_thermal(thermal_root, input_fn=lambda _prompt: next(answers))
+        print("  Configuration créée et validée dans lab/lab.json.")
+
+        title("4b. Traitement avant / après activation de la calibration thermique")
+        run_point(thermal_root, "PointThermique", VirtualLab(without.data))
         raw = pd.read_csv(thermal_root / "processed_data/PointThermique/data/measures.csv")["Pressure"].to_numpy()
         manifest, _ = run_point(thermal_root, "PointThermique")
         corrected = pd.read_csv(thermal_root / "processed_data/PointThermique/data/measures.csv")["Pressure"].to_numpy()
