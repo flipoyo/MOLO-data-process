@@ -54,7 +54,7 @@ class VirtualLab:
     def save(self, path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.data, sort_keys=True, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
+        path.write_text(json.dumps(self.data, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     def digest(self) -> str:
         return digest(self.data)
