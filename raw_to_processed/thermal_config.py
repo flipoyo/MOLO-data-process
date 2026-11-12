@@ -66,6 +66,8 @@ def configure_thermal(data_root, lab_path=None, input_fn=input, print_fn=print) 
         }
         if any(value not in COLONNES for value in columns.values()):
             raise ValueError(f"Colonne inconnue. Colonnes autorisées : {', '.join(COLONNES)}")
+        if len(set(columns.values())) != 3:
+            raise ValueError("Les trois rôles doivent correspondre à trois colonnes distinctes.")
     else:
         preview = pd.read_excel(table_path) if table_path.suffix.lower() in {".xlsx", ".xls"} else pd.read_csv(table_path)
         print_fn("Colonnes détectées : " + ", ".join(map(str, preview.columns)))
@@ -98,6 +100,12 @@ def configure_thermal(data_root, lab_path=None, input_fn=input, print_fn=print) 
         spec["columns"] = columns
     if dt_seconds is not None:
         spec["dt_seconds"] = dt_seconds
+    conflicts = [p for p in points if data["sampling_points"][p].get("hardware_generation") not in (None, generation)]
+    if conflicts:
+        answer = _ask_choice("Ces points sont déjà associés à une autre génération (" + ", ".join(conflicts) + "). Remplacer ?", ["oui", "non"], input_fn)
+        if answer == "non":
+            raise ValueError("Configuration annulée : associations existantes conservées.")
+
     data.setdefault("thermal_calibrations", {})[generation] = spec
     for point in points:
         data["sampling_points"][point]["hardware_generation"] = generation
