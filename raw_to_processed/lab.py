@@ -1,27 +1,11 @@
-"""Laboratoire virtuel : relie le matériel (appareils), les sampling points et la calibration.
+"""Laboratoire virtuel : relie le matériel (appareils), les sampling points et les calibrations.
 
-C'est la table que lisent le receiver (à quel sampling point appartient ce message ?) et le pipeline
-(quelle calibration, quels paramètres de lecture ?). C'est une donnée versionnée, pas du code.
+Les calibrations thermiques expérimentales sont référencées dans le laboratoire, mais leurs fichiers restent dans
+<data_root>/calibration/thermal/ et ne sont jamais incorporés au JSON.
 
-Format du fichier `lab/lab.json` :
-
-    {"schema": 1,
-     "calibrations": {"P520_T001": {"beta": 3834.0, "v_ref": 3.3, "intercept": ..., "dudh": ..., "dudt": ...}},
-     "sampling_points": {
-        "Point034": {"calibration": "P520_T001",
-                     "devices": ["VIRT-0001"],                      # identifiants lus dans les messages LoRa
-                     "params": {"rules": {"Temp1": "iqr"}},         # facultatif, commun à toutes les sources
-                     "v1": {"date_fmt": "%m/%d/%y %I:%M:%S %p", "utc_offset_hours": 0.0},   # facultatif, par source
-                     "legacy_csv": {"date_fmt": "%d/%m/%Y %H:%M", "utc_offset_hours": 1.0,  # exports 2015-2023
-                                    "timestamps": "strict"},        # ou "intersection"
-                     "thermal_calibration": {                       # facultatif : correction thermique (filtre)
-                         "table": "calibration/p508/RECORDS.csv",   # chemin relatif à la racine du dépôt de données
-                         "columns": {"external": "Value_Temperature_2", "internal": "Value_Temperature_3",
-                                     "pressure": "Value_Pressure"},  # rôle de chaque colonne : jamais deviné
-                         "external_series": "TempBed"}}}}
-
-La spec cible parle d'un `lab.yaml` dans MOLONARI-TWIN ; le prototype utilise du JSON pour ne pas ajouter de
-dépendance. Le chemin du fichier se passe en paramètre (`--lab`) : il n'a pas à vivre dans le dépôt de données.
+Le registre thermal_calibrations est indexé par génération matérielle. Un point peut sélectionner sa calibration
+par hardware_generation, ou référencer explicitement une entrée avec thermal_calibration. Les anciens objets
+thermiques directement placés dans un point restent acceptés pour compatibilité.
 """
 from __future__ import annotations
 
@@ -32,7 +16,7 @@ from pathlib import Path
 from .canonical import digest
 from .states import Calibration
 
-LAB_PATH = Path("lab") / "lab.json"       # emplacement par défaut, relatif à la racine du dépôt de données
+LAB_PATH = Path("lab") / "lab.json"
 
 
 @dataclass(frozen=True)
@@ -42,13 +26,21 @@ class VirtualLab:
 
     def __post_init__(self):
         calibrations = self.data.get("calibrations", {})
+        thermal_calibrations = self.data.get("thermal_calibrations", {})
         points = self.data.get("sampling_points", {})
         if self.data.get("schema") != 1:
             raise ValueError("lab : schema 1 attendu")
+        if not isinstance(thermal_calibrations, dict):
+            raise ValueError("lab : 'thermal_calibrations' doit être un objet")
         device_map: dict[str, str] = {}
         for name, spec in points.items():
             if spec.get("calibration") not in calibrations:
                 raise ValueError(f"lab : le point {name!r} cite une calibration inconnue {spec.get('calibration')!r}")
+            ref = spec.get("thermal_calibration")
+            if isinstance(ref, str) and ref not in thermal_calibrations:
+                raise ValueError(f"lab : le point {name!r} cite une calibration thermique inconnue {ref!r}")
+            if ref is not None and not isinstance(ref, (str, dict)):
+                raise ValueError(f"lab : thermal_calibration de {name!r} doit être un identifiant ou un objet")
             for ui in spec.get("devices", []):
                 if ui in device_map:
                     raise ValueError(f"lab : l'appareil {ui!r} est rattaché à {device_map[ui]!r} et à {name!r}")
@@ -62,7 +54,7 @@ class VirtualLab:
     def save(self, path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.data, sort_keys=True, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(self.data, sort_keys=True, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
 
     def digest(self) -> str:
         return digest(self.data)
@@ -87,10 +79,23 @@ class VirtualLab:
         return Calibration(**self.data["calibrations"][self.calibration_name(point)])
 
     def thermal(self, point: str) -> dict | None:
-        """Description de la calibration thermique du point (clé `thermal_calibration`), ou None."""
-        spec = self.data["sampling_points"][point].get("thermal_calibration")
-        if spec is not None and "table" not in spec:
-            raise ValueError(f"lab : thermal_calibration de {point!r} sans clé 'table'")
+        """Renvoie la calibration thermique explicite ou celle de la génération matérielle."""
+        point_spec = self.data["sampling_points"][point]
+        ref = point_spec.get("thermal_calibration")
+        registry = self.data.get("thermal_calibrations", {})
+        if isinstance(ref, str):
+            spec = registry[ref]
+        elif isinstance(ref, dict):
+            spec = ref
+        else:
+            generation = point_spec.get("hardware_generation")
+            spec = registry.get(generation) if generation is not None else None
+
+        if spec is not None:
+            if not isinstance(spec, dict) or "table" not in spec:
+                raise ValueError(f"lab : calibration thermique de {point!r} sans clé 'table'")
+            if not spec["table"]:
+                raise ValueError(f"lab : chemin de table thermique vide pour {point!r}")
         return spec
 
     def params(self, point: str, kind: str) -> dict:
